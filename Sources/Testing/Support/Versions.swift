@@ -130,7 +130,9 @@ var testingLibraryVersion: String {
   // The variable `_testingLibraryVersion` is generated at compile-time by the
   // GitStatus plugin. If the plugin was unable to gather tag or commit
   // information from Git, it produces a nil value.
-  _testingLibraryVersion ?? "unknown"
+  // BO: I am commenting this out becuase it is breaking previews
+  // _testingLibraryVersion ?? "unknown"
+  "unknown"
 #endif
 }
 

@@ -8,8 +8,8 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-import SwiftSyntax
-import SwiftSyntaxMacros
+public import SwiftSyntax
+public import SwiftSyntaxMacros
 
 /// A syntax rewriter that removes leading `Self.` tokens from member access
 /// expressions in a syntax tree.

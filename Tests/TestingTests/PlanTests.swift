@@ -7,7 +7,7 @@
 // See https://swift.org/LICENSE.txt for license information
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
-
+    
 @testable @_spi(ExperimentalTestRunning) import Testing
 
 @Suite("Runner.Plan Tests")
@@ -26,8 +26,9 @@ struct PlanTests {
       testB,
     ]
 
+    let selection = [innerTestType.id]
     var configuration = Configuration()
-    configuration.selectedTestIDs = [innerTestType.id]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     let plan = await Runner.Plan(tests: tests, configuration: configuration)
     #expect(plan.steps.contains(where: { $0.test == outerTestType }))
@@ -51,7 +52,8 @@ struct PlanTests {
     ]
 
     var configuration = Configuration()
-    configuration.selectedTestIDs = [innerTestType.id, outerTestType.id]
+    let selection = [innerTestType.id, outerTestType.id]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     let plan = await Runner.Plan(tests: tests, configuration: configuration)
     let planTests = plan.steps.map(\.test)
@@ -70,7 +72,8 @@ struct PlanTests {
     let tests = [outerTestType, deeplyNestedTest]
 
     var configuration = Configuration()
-    configuration.selectedTestIDs = [outerTestType.id, deeplyNestedTest.id]
+    let selection = [outerTestType.id, deeplyNestedTest.id]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     let plan = await Runner.Plan(tests: tests, configuration: configuration)
 
@@ -88,7 +91,8 @@ struct PlanTests {
     let tests = [testSuiteA, testSuiteB, testSuiteC, testFuncX]
 
     var configuration = Configuration()
-    configuration.selectedTestIDs = [testSuiteA.id]
+    let selection = [testSuiteA.id]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     let plan = await Runner.Plan(tests: tests, configuration: configuration)
     let testFuncXWithTraits = try #require(plan.steps.map(\.test).first { $0.name == "x()" })
@@ -105,9 +109,9 @@ struct PlanTests {
     // The tests themselves are nested deeper, under the source location, so
     // we're just checking here that the key path has been constructed correctly
     // up to the function names.
-    #expect((plan.stepGraph[nameComponents(of: SendableTests.self) + CollectionOfOne("succeeds()")] as Any?) != nil)
-    #expect((plan.stepGraph[nameComponents(of: SendableTests.self) + CollectionOfOne("static()")] as Any?) != nil)
-    #expect((plan.stepGraph[nameComponents(of: SendableTests.self) + CollectionOfOne("reserved1(reserved2:)")] as Any?) != nil)
+    #expect(plan.stepGraph.subgraph(at: nameComponents(of: SendableTests.self) + CollectionOfOne("succeeds()")) != nil)
+    #expect(plan.stepGraph.subgraph(at: nameComponents(of: SendableTests.self) + CollectionOfOne("static()")) != nil)
+    #expect(plan.stepGraph.subgraph(at: nameComponents(of: SendableTests.self) + CollectionOfOne("reserved1(reserved2:)")) != nil)
   }
 
   @Test("Runner.Plan.independentlyRunnableSteps property")

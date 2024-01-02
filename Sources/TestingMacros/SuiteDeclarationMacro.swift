@@ -8,8 +8,8 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-import SwiftSyntax
-import SwiftSyntaxMacros
+public import SwiftSyntax
+public import SwiftSyntaxMacros
 
 /// A type describing the expansion of the `@Suite` attribute macro.
 ///
@@ -156,10 +156,9 @@ public struct SuiteDeclarationMacro: MemberMacro, PeerMacro, Sendable {
     let enumName = context.makeUniqueName("__🟠$test_container__suite__\(typeName)")
     result.append(
       """
-      @available(*, unavailable, message: "This type is an implementation detail of the testing library. It cannot be used directly.")
-      @available(*, deprecated)
-      @frozen public enum \(enumName): Testing.__TestContainer {
-        public static var __tests: [Testing.Test] {
+      @available(*, deprecated, message: "This type is an implementation detail of the testing library. Do not use it directly.")
+      @frozen enum \(enumName): Testing.__TestContainer {
+        static var __tests: [Testing.Test] {
           get async {[
             .__type(
               \(declaration.type.trimmed).self,

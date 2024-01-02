@@ -9,8 +9,8 @@
 //
 
 import SwiftDiagnostics
-import SwiftSyntax
-import SwiftSyntaxMacros
+public import SwiftSyntax
+public import SwiftSyntaxMacros
 
 /// A type describing diagnostic messages emitted by this module's macro during
 /// evaluation.

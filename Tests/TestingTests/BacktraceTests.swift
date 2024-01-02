@@ -9,6 +9,9 @@
 //
 
 @testable @_spi(ExperimentalEventHandling) @_spi(ExperimentalTestRunning) import Testing
+#if canImport(Foundation)
+import Foundation
+#endif
 
 struct BacktracedError: Error {}
 
@@ -43,4 +46,14 @@ struct BacktraceTests {
   func noBacktraceForNewError() throws {
     #expect(Backtrace(forFirstThrowOf: BacktracedError()) == nil)
   }
+
+#if canImport(Foundation)
+  @Test("Encoding/decoding")
+  func encodingAndDecoding() throws {
+    let original = Backtrace.current()
+    let data = try JSONEncoder().encode(original)
+    let copy = try JSONDecoder().decode(Backtrace.self, from: data)
+    #expect(original == copy)
+  }
+#endif
 }

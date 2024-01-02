@@ -8,10 +8,11 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
+@testable @_spi(ExperimentalEventHandling) @_spi(ExperimentalTestRunning) @_spi(ExperimentalSnapshotting) import Testing
+private import TestingInternals
+
 #if canImport(XCTest)
 import XCTest
-@testable @_spi(ExperimentalEventHandling) @_spi(ExperimentalTestRunning) import Testing
-@_implementationOnly import TestingInternals
 
 final class IssueTests: XCTestCase {
   func testExpect() async throws {
@@ -1139,7 +1140,11 @@ final class IssueTests: XCTestCase {
     await fulfillment(of: [expectationFailed], timeout: 0.0)
   }
 
-  func testEnumDescription() async {
+  func testEnumDescription() async throws {
+    guard #available(_mangledTypeNameAPI, *) else {
+      throw XCTSkip("Unavailable")
+    }
+
     enum E: CaseIterable {
       case a
       case b
@@ -1198,7 +1203,11 @@ final class IssueTests: XCTestCase {
     await fulfillment(of: [expectationFailed], timeout: 0.0)
   }
 
-  func testCEnumDescription() async {
+  func testCEnumDescription() async throws {
+    guard #available(_mangledTypeNameAPI, *) else {
+      throw XCTSkip("Unavailable")
+    }
+
     let expectationFailed = expectation(description: "Expectation failed")
 
     var configuration = Configuration()
@@ -1222,3 +1231,29 @@ final class IssueTests: XCTestCase {
   }
 }
 #endif
+
+struct IssueCodingTests {
+
+  @Test("Codable",
+        arguments: [
+          Issue.Kind.apiMisused,
+          Issue.Kind.confirmationMiscounted(actual: 13, expected: 42),
+          Issue.Kind.errorCaught(NSError(domain: "Domain", code: 13, userInfo: ["UserInfoKey": "UserInfoValue"])),
+          Issue.Kind.expectationFailed(Expectation(isPassing: true, isRequired: true, sourceLocation: SourceLocation())),
+          Issue.Kind.knownIssueNotRecorded,
+          Issue.Kind.system,
+          Issue.Kind.timeLimitExceeded(timeLimitComponents: (13, 42)),
+          Issue.Kind.unconditional,
+        ]
+  )
+  func testCodable(issueKind: Issue.Kind) async throws {
+    let issue = Issue(kind: issueKind,
+                      comments: ["Comment"],
+                      sourceContext: SourceContext(backtrace: Backtrace.current(), sourceLocation: SourceLocation()))
+    let issueSnapshot = Issue.Snapshot(snapshotting: issue)
+    let encoded = try JSONEncoder().encode(issueSnapshot)
+    let decoded = try JSONDecoder().decode(Issue.Snapshot.self, from: encoded)
+
+    #expect(String(describing: decoded) == String(describing: issueSnapshot))
+  }
+}

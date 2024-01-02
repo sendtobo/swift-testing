@@ -8,8 +8,8 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-import SwiftSyntax
-import SwiftSyntaxMacros
+public import SwiftSyntax
+public import SwiftSyntaxMacros
 
 /// A protocol containing the common implementation for the expansions of the
 /// `#expect()` and `#require()` macros.

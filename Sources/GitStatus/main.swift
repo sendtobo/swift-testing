@@ -56,10 +56,13 @@ func _runGit(passing arguments: String..., readingUpToCount maxOutputCount: Int)
   defer {
     process.terminate()
   }
-  guard let output = try? stdoutPipe.fileHandleForReading.read(upToCount: maxOutputCount) else {
-    return nil
+
+  let output = if #available(macOS 10.15.4, *) {
+    try? stdoutPipe.fileHandleForReading.read(upToCount: maxOutputCount)
+  } else {
+    stdoutPipe.fileHandleForReading.readData(ofLength: maxOutputCount)
   }
-  return String(data: output, encoding: .utf8)
+  return output.flatMap { String(data: $0, encoding: .utf8) }
 #else
   return nil
 #endif

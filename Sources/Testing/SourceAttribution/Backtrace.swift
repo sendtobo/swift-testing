@@ -8,19 +8,39 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-@_implementationOnly import TestingInternals
+private import TestingInternals
 
 /// A type representing a backtrace or stack trace.
 public struct Backtrace: Sendable {
+  /// A type describing an address in a backtrace.
+  ///
+  /// If a `nil` address is present in a backtrace, it is represented as `0`.
+  public typealias Address = UInt64
+
   /// The addresses in this backtrace.
-  public var addresses: [UnsafeRawPointer?]
+  public var addresses: [Address]
 
   /// Initialize an instance of this type with the specified addresses.
   ///
   /// - Parameters:
   ///   - addresses: The addresses in the backtrace.
-  public init(addresses: some Sequence<UnsafeRawPointer?>) {
+  public init(addresses: some Sequence<Address>) {
     self.addresses = Array(addresses)
+  }
+
+  /// Initialize an instance of this type with the specified addresses.
+  ///
+  /// - Parameters:
+  ///   - addresses: The addresses in the backtrace.
+  ///
+  /// The pointers in `addresses` are converted to instances of ``Address``. Any
+  /// `nil` addresses are represented as `0`.
+  public init(addresses: some Sequence<UnsafeRawPointer?>) {
+    self.init(
+      addresses: addresses.lazy
+        .map(UInt.init(bitPattern:))
+        .map(Address.init)
+    )
   }
 
   /// Get the current backtrace.
@@ -43,7 +63,7 @@ public struct Backtrace: Sendable {
     let addresses = [UnsafeRawPointer?](unsafeUninitializedCapacity: addressCount) { addresses, initializedCount in
       addresses.withMemoryRebound(to: UnsafeMutableRawPointer?.self) { addresses in
 #if SWT_TARGET_OS_APPLE
-        if #available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *) {
+        if #available(_backtraceAsyncAPI, *) {
           initializedCount = backtrace_async(addresses.baseAddress!, addresses.count, nil)
         } else {
           initializedCount = .init(backtrace(addresses.baseAddress!, .init(addresses.count)))
@@ -64,6 +84,22 @@ public struct Backtrace: Sendable {
 // MARK: - Equatable, Hashable
 
 extension Backtrace: Equatable, Hashable {}
+
+// MARK: - Codable
+
+// Explicitly implement Codable support by encoding and decoding the addresses
+// array directly. Doing this avoids an extra level of indirection in the
+// encoded form of a backtrace.
+
+extension Backtrace: Codable {
+  public init(from decoder: any Decoder) throws {
+    try self.init(addresses: [Address](from: decoder))
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    try addresses.encode(to: encoder)
+  }
+}
 
 // MARK: - Backtraces for thrown errors
 
@@ -93,11 +129,11 @@ extension Backtrace {
 
   /// Storage for the error-mapping cache.
   ///
-  /// Keys in this map are the raw addresses of the heap-allocated `SwiftError`
-  /// and `NSError` boxes around thrown Swift errors. Addresses are, of course,
-  /// dangerous to hold without also holding references to the relevant objects,
-  /// but using `AnyObject` as a key would result in thrown errors never being
-  /// deallocated.
+  /// Keys in this map are the object identifiers (i.e. the addresses) of the
+  /// heap-allocated `SwiftError` and `NSError` boxes around thrown Swift
+  /// errors. Addresses are, of course, dangerous to hold without also holding
+  /// references to the relevant objects, but using `AnyObject` as a key would
+  /// result in thrown errors never being deallocated.
   ///
   /// To ensure the keys remain valid, a _weak_ reference to the error object is
   /// held in the value. When an error is looked up by key, we check if the weak
@@ -108,7 +144,7 @@ extension Backtrace {
   ///
   /// Access to this dictionary is guarded by a lock.
   @Locked
-  private static var _errorMappingCache = [UnsafeRawPointer: _ErrorMappingCacheEntry]()
+  private static var _errorMappingCache = [ObjectIdentifier: _ErrorMappingCacheEntry]()
 
   /// The previous `swift_willThrow` handler, if any.
   @Locked
@@ -124,14 +160,15 @@ extension Backtrace {
     _oldWillThrowHandler?(errorAddress)
 
     let errorObject = unsafeBitCast(errorAddress, to: (any AnyObject & Sendable).self)
+    let errorID = ObjectIdentifier(errorObject)
     let backtrace = Backtrace.current()
     let newEntry = _ErrorMappingCacheEntry(errorObject: errorObject, backtrace: backtrace)
 
     Self.$_errorMappingCache.withLock { cache in
-      let oldEntry = cache[errorAddress]
+      let oldEntry = cache[errorID]
       if oldEntry?.errorObject == nil {
         // Either no entry yet, or its weak reference was zeroed.
-        cache[errorAddress] = newEntry
+        cache[errorID] = newEntry
       }
     }
   }
@@ -180,9 +217,9 @@ extension Backtrace {
   ///   existential containers with different addresses.
   @inline(never)
   init?(forFirstThrowOf error: any Error) {
-    let errorAddress = unsafeBitCast(error, to: UnsafeRawPointer.self)
+    let errorID = ObjectIdentifier(unsafeBitCast(error, to: AnyObject.self))
     let entry = Self.$_errorMappingCache.withLock { cache in
-      cache[errorAddress]
+      cache[errorID]
     }
     if let entry, entry.errorObject != nil {
       // There was an entry and its weak reference is still valid.

@@ -15,37 +15,24 @@ public struct Configuration: Sendable {
   /// configuration.
   public init() {}
 
-  /// Whether or not to parallelize the execution of tests and test cases (by
-  /// default.)
-  static var isParallelizationEnabledByDefault: Bool { Environment.flag(named: "SWT_ENABLE_PARALLELIZATION") ?? true }
+  // MARK: - Parallelization
 
   /// Whether or not to parallelize the execution of tests and test cases.
-  public var isParallelizationEnabled = Self.isParallelizationEnabledByDefault
+  public var isParallelizationEnabled = true
+
+  // MARK: - Main actor isolation
 
 #if !SWT_NO_GLOBAL_ACTORS
-  /// Whether or not synchronous test functions need to run on the main actor
-  /// (by default.)
-  ///
-  /// This property is available on platforms where UI testing is implemented.
-  static var isMainActorIsolationEnforcedByDefault: Bool { Environment.flag(named: "SWT_MAIN_ACTOR_ISOLATED") ?? false }
-
   /// Whether or not synchronous test functions need to run on the main actor.
   ///
   /// This property is available on platforms where UI testing is implemented.
-  public var isMainActorIsolationEnforced = Self.isMainActorIsolationEnforcedByDefault
+  public var isMainActorIsolationEnforced = false
 #endif
 
   // MARK: - Time limits
 
   /// Storage for the ``defaultTestTimeLimit`` property.
-  private var _defaultTestTimeLimit: (any Sendable)? = {
-    guard #available(_clockAPI, *) else {
-      return nil
-    }
-    return Environment.variable(named: "SWT_DEFAULT_TEST_TIME_LIMIT_NANOSECONDS")
-      .flatMap(UInt64.init)
-      .map(Duration.nanoseconds)
-  }()
+  private var _defaultTestTimeLimit: (any Sendable)?
 
   /// The default amount of time a test may run for before timing out if it does
   /// not have an instance of ``TimeLimitTrait`` applied to it.
@@ -66,14 +53,7 @@ public struct Configuration: Sendable {
   }
 
   /// Storage for the ``maximumTestTimeLimit`` property.
-  private var _maximumTestTimeLimit: (any Sendable)? = {
-    guard #available(_clockAPI, *) else {
-      return nil
-    }
-    return Environment.variable(named: "SWT_MAXIMUM_TEST_TIME_LIMIT_NANOSECONDS")
-      .flatMap(UInt64.init)
-      .map(Duration.nanoseconds)
-  }()
+  private var _maximumTestTimeLimit: (any Sendable)?
 
   /// The maximum amount of time a test may run for before timing out,
   /// regardless of the value of ``defaultTestTimeLimit`` or individual
@@ -95,14 +75,7 @@ public struct Configuration: Sendable {
   }
 
   /// Storage for the ``testTimeLimitGranularity`` property.
-  private var _testTimeLimitGranularity: (any Sendable)? = {
-    guard #available(_clockAPI, *) else {
-      return nil
-    }
-    return Environment.variable(named: "SWT_TEST_TIME_LIMIT_GRANULARITY_NANOSECONDS")
-      .flatMap(UInt64.init)
-      .map(Duration.nanoseconds)
-  }()
+  private var _testTimeLimitGranularity: (any Sendable)?
 
   /// The granularity to enforce on test time limits.
   ///
@@ -137,38 +110,77 @@ public struct Configuration: Sendable {
 
   // MARK: - Test selection
 
-  /// The selected tests to run, if any.
+  /// A function that handles filtering tests.
   ///
-  /// This property should be used for testing membership (whether a test ID has
-  /// been selected) since it is more optimized for that use case. It also
-  /// provides the backing storage for ``selectedTestIDs``.
+  /// - Parameters:
+  ///   - test: An test that needs to be filtered.
   ///
-  /// This property is optional and defaults to `nil` because it is possible to
-  /// select specific tests to run but not provide any tests in that list. That
-  /// is a supported use case: it results in zero tests being run and no issues
-  /// recorded.
-  ///
-  /// A practical example of when this situation can happen is when testing is
-  /// configured via an Xcode Test Plan, the "Automatically Include New Tests"
-  /// option is disabled, and zero tests are enabled.
-  var selectedTests: Test.ID.Selection?
+  /// - Returns: A Boolean value representing if the test satisfied the filter.
+  public typealias TestFilter = @Sendable (_ test: Test) -> Bool
 
-  /// The IDs of the selected tests to run, if any.
-  ///
-  /// This property is optional and defaults to `nil` because it is possible to
-  /// select specific tests to run but not provide any tests in that list. That
-  /// is a supported use case: it results in zero tests being run and no issues
-  /// recorded.
-  ///
-  /// A practical example of when this situation can happen is when testing is
-  /// configured via an Xcode Test Plan, the "Automatically Include New Tests"
-  /// option is disabled, and zero tests are enabled.
-  public var selectedTestIDs: Set<Test.ID>? {
+  /// Storage for ``testFilter-swift.property``.
+  private var _testFilter: TestFilter = { !$0.isHidden }
+
+  /// The test filter to which tests should be filtered when run.
+  public var testFilter: TestFilter {
     get {
-      selectedTests?.testIDs
+      _testFilter
     }
     set {
-      selectedTests = newValue.map { .init(testIDs: $0) }
+      // By default, the test filter should always filter out hidden tests. This
+      // is the appropriate behavior for external clients of this SPI. If the
+      // testing library needs to enable hidden tests in its own test targets,
+      // it can instead use `uncheckedTestFilter`.
+      _testFilter = { test in
+        !test.isHidden && newValue(test)
+      }
     }
   }
+
+  /// The test filter to which tests should be filtered when run.
+  ///
+  /// Unlike ``testFilter-swift.property``, this property does not impose any
+  /// checks for hidden tests. It is used by the testing library to run hidden
+  /// tests; other callers should always use ``testFilter-swift.property``.
+  var uncheckedTestFilter: TestFilter {
+    get {
+      _testFilter
+    }
+    set {
+      _testFilter = newValue
+    }
+  }
+
+  // MARK: - Test case selection
+
+  /// A function that handles filtering test cases.
+  ///
+  /// - Parameters:
+  ///   - testCase: The test case to be filtered.
+  ///   - test: The test which `testCase` is associated with.
+  ///
+  /// - Returns: A Boolean value representing if the test case satisfied the
+  ///   filter.
+  @_spi(ExperimentalParameterizedTesting)
+  public typealias TestCaseFilter = @Sendable (_ testCase: Test.Case, _ test: Test) -> Bool
+
+  /// The test case filter to which test cases should be filtered when run.
+  @_spi(ExperimentalParameterizedTesting)
+  public var testCaseFilter: TestCaseFilter = { _, _ in true }
+}
+
+// MARK: - Test filter factory functions
+
+/// Make a test filter that filters tests to those specified by a set of test
+/// IDs.
+///
+/// - Parameters:
+///   - selection: A set of test IDs to be filtered.
+///
+/// - Returns: A test filter that filters tests to those specified by
+///   `selection`.
+@_spi(ExperimentalTestRunning)
+public func makeTestFilter(matching selection: some Collection<Test.ID>) -> Configuration.TestFilter {
+  let selection = Test.ID.Selection(testIDs: selection)
+  return selection.contains
 }

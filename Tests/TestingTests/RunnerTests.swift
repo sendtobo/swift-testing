@@ -49,7 +49,7 @@ struct NeverRunTests {
 final class RunnerTests: XCTestCase {
   func testDefaultInit() async throws {
     let runner = await Runner()
-    XCTAssertFalse(runner.tests.contains { $0.isHidden })
+    XCTAssertFalse(runner.tests.contains(where: \.isHidden))
   }
 
   func testTestsProperty() async throws {
@@ -250,7 +250,8 @@ final class RunnerTests: XCTestCase {
     let testFunc = try #require(await testFunction(named: "duelingConditions()", in: NeverRunTests.self))
 
     var configuration = Configuration()
-    configuration.selectedTests = .init(testIDs: [testSuite.id])
+    let selection = [testSuite.id]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     let runner = await Runner(testing: [
       testSuite,
@@ -294,11 +295,13 @@ final class RunnerTests: XCTestCase {
       (SendableTests.self, "disabled()"),
     ]
 
-    var configuration = Configuration()
-    configuration.selectedTestIDs = Set(tests.map {
+    let selectedTestIDs = Set(tests.map {
       Test.ID(type: $0).child(named: $1)
     })
-    XCTAssertEqual(false, configuration.selectedTestIDs?.isEmpty)
+    XCTAssertFalse(selectedTestIDs.isEmpty)
+
+    var configuration = Configuration()
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selectedTestIDs)
 
     let runner = await Runner(configuration: configuration)
     let plan = runner.plan
@@ -310,6 +313,29 @@ final class RunnerTests: XCTestCase {
       return
     }
     XCTAssertEqual(skipInfo.comment, "Some comment")
+  }
+
+  @Suite(.hidden) struct S {
+    @Test(.hidden) func f() {}
+  }
+
+  func testPlanExcludesHiddenTests() async throws {
+    let selectedTestIDs: Set<Test.ID> = [
+      Test.ID(type: S.self).child(named: "f()")
+    ]
+
+    var configuration1 = Configuration()
+    configuration1.testFilter = makeTestFilter(matching: selectedTestIDs)
+
+    var configuration2 = Configuration()
+    configuration2.testFilter = makeTestFilter(matching: selectedTestIDs)
+
+    for configuration in [configuration1, configuration2] {
+      let runner = await Runner(configuration: configuration)
+      let plan = runner.plan
+
+      XCTAssertEqual(plan.steps.count, 0)
+    }
   }
 
   func testHardCodedPlan() async throws {

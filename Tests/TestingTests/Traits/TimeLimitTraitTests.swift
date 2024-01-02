@@ -69,42 +69,6 @@ struct TimeLimitTraitTests {
   }
 
   @available(_clockAPI, *)
-  @Test("Configuration.defaultTestTimeLimit environment variable")
-  func defaultTimeLimitEnvironmentVariable() throws {
-    let oldEnvironmentVariable = Environment.variable(named: "SWT_DEFAULT_TEST_TIME_LIMIT_NANOSECONDS")
-    Environment.setVariable("1234567890", named: "SWT_DEFAULT_TEST_TIME_LIMIT_NANOSECONDS")
-    defer {
-      Environment.setVariable(oldEnvironmentVariable, named: "SWT_DEFAULT_TEST_TIME_LIMIT_NANOSECONDS")
-    }
-    let configuration = Configuration()
-    #expect(configuration.defaultTestTimeLimit == .nanoseconds(1234567890))
-  }
-
-  @available(_clockAPI, *)
-  @Test("Configuration.maximumTestTimeLimit environment variable")
-  func maximumTimeLimitEnvironmentVariable() throws {
-    let oldEnvironmentVariable = Environment.variable(named: "SWT_MAXIMUM_TEST_TIME_LIMIT_NANOSECONDS")
-    Environment.setVariable("1234567890", named: "SWT_MAXIMUM_TEST_TIME_LIMIT_NANOSECONDS")
-    defer {
-      Environment.setVariable(oldEnvironmentVariable, named: "SWT_MAXIMUM_TEST_TIME_LIMIT_NANOSECONDS")
-    }
-    let configuration = Configuration()
-    #expect(configuration.maximumTestTimeLimit == .nanoseconds(1234567890))
-  }
-
-  @available(_clockAPI, *)
-  @Test("Configuration.testTimeLimitGranularity environment variable")
-  func timeLimitGranularityEnvironmentVariable() throws {
-    let oldEnvironmentVariable = Environment.variable(named: "SWT_TEST_TIME_LIMIT_GRANULARITY_NANOSECONDS")
-    Environment.setVariable("1234567890", named: "SWT_TEST_TIME_LIMIT_GRANULARITY_NANOSECONDS")
-    defer {
-      Environment.setVariable(oldEnvironmentVariable, named: "SWT_TEST_TIME_LIMIT_GRANULARITY_NANOSECONDS")
-    }
-    let configuration = Configuration()
-    #expect(configuration.testTimeLimitGranularity == .nanoseconds(1234567890))
-  }
-
-  @available(_clockAPI, *)
   @Test("Test times out when overrunning .timeLimit() trait")
   func testTimesOutDueToTrait() async throws {
     await confirmation("Issue recorded", expectedCount: 10) { issueRecorded in
@@ -244,7 +208,8 @@ struct TimeLimitTraitTests {
 #if !SWT_NO_XCTEST_SCAFFOLDING && SWT_TARGET_OS_APPLE
   @Test("TimeoutError.description property")
   func timeoutErrorDescription() async throws {
-    #expect(String(describing: TimeoutError(timeLimitComponents: (0, 0))).contains("0.000"))
+    let timeLimit = TimeValue((0, 0))
+    #expect(String(describing: TimeoutError(timeLimit: timeLimit)).contains("0.000"))
   }
 #endif
 
@@ -254,7 +219,7 @@ struct TimeLimitTraitTests {
       (123, 000_100_000_000_000_000, "123.000"),
       (0, 000_100_000_000_000_000, "0.001"),
       (0, 000_000_001_000_000_000, "0.001"),
-      (0, 000_000_000_000_000_001, "0.000"),
+      (0, 000_000_000_000_000_001, "0.001"),
       (123, 456_000_000_000_000_000, "123.456"),
       (123, 1_000_000_000_000_000_000, "124.000"),
     ]

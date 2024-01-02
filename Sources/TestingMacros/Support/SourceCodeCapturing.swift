@@ -8,7 +8,7 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-import SwiftSyntax
+public import SwiftSyntax
 
 /// Get an expression initializing an instance of ``SourceCode`` from an
 /// arbitrary syntax node.
@@ -74,4 +74,13 @@ func createSourceCodeExprForFunctionCall(_ value: (some SyntaxProtocol)?, _ func
   }
 
   return ".__functionCall(\(arguments))"
+}
+
+func createSourceCodeExprForPropertyAccess(_ value: ExprSyntax, _ keyPath: DeclReferenceExprSyntax) -> ExprSyntax {
+  let arguments = LabeledExprListSyntax {
+    LabeledExprSyntax(expression: StringLiteralExprSyntax(content: value.trimmedDescription))
+    LabeledExprSyntax(expression: StringLiteralExprSyntax(content: keyPath.baseName.trimmedDescription))
+  }
+
+  return ".__fromPropertyAccess(\(arguments))"
 }

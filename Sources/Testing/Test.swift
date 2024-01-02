@@ -9,7 +9,7 @@
 //
 
 #if _runtime(_ObjC)
-import ObjectiveC
+public import ObjectiveC
 #endif
 
 /// A type representing a test or suite.
@@ -94,6 +94,15 @@ public struct Test: Sendable {
   @_spi(ExperimentalTestRunning)
   public var xcTestCompatibleSelector: __XCTestCompatibleSelector?
 
+  /// Storage for the ``testCases`` property.
+  ///
+  /// This use of `UncheckedSendable` and of `AnySequence` is necessary because
+  /// it is not currently possible to express `Sequence<Test.Case> & Sendable`
+  /// as an existential (`any`) ([96960993](rdar://96960993)). It is also not
+  /// possible to have a value of an underlying generic sequence type without
+  /// specifying its generic parameters.
+  private var _testCases: UncheckedSendable<AnySequence<Test.Case>>?
+
   /// The set of test cases associated with this test, if any.
   ///
   /// For parameterized tests, each test case is associated with a single
@@ -101,12 +110,17 @@ public struct Test: Sendable {
   /// test case is synthesized. For test suite types (as opposed to test
   /// functions), the value of this property is `nil`.
   @_spi(ExperimentalParameterizedTesting)
-  public var testCases: (any TestCases)?
+  public var testCases: (some Sequence<Test.Case> & Sendable)? {
+    _testCases?.rawValue
+  }
 
   /// Whether or not this test is parameterized.
   @_spi(ExperimentalParameterizedTesting)
   public var isParameterized: Bool {
-    testCases?.isParameterized ?? false
+    guard let parameterCount = parameters?.count else {
+      return false
+    }
+    return parameterCount != 0
   }
 
   /// The test function parameters, if any.
@@ -124,10 +138,45 @@ public struct Test: Sendable {
   /// suites. They do not contain any test logic of their own, but they may
   /// have traits added to them that also apply to their subtests.
   ///
-  /// A test suite can be declared using the ``Suite(_:)`` or ``Suite(_:_:)``
-  /// macro.
+  /// A test suite can be declared using the ``Suite(_:_:)`` macro.
   public var isSuite: Bool {
     containingType != nil && testCases == nil
+  }
+
+  /// Initialize an instance of this type representing a test suite type.
+  init(
+    name: String,
+    displayName: String? = nil,
+    traits: [any Trait],
+    sourceLocation: SourceLocation,
+    containingType: Any.Type
+  ) {
+    self.name = name
+    self.displayName = displayName
+    self.traits = traits
+    self.sourceLocation = sourceLocation
+    self.containingType = containingType
+  }
+
+  /// Initialize an instance of this type representing a test function.
+  init<S>(
+    name: String,
+    displayName: String? = nil,
+    traits: [any Trait],
+    sourceLocation: SourceLocation,
+    containingType: Any.Type? = nil,
+    xcTestCompatibleSelector: __XCTestCompatibleSelector? = nil,
+    testCases: Test.Case.Generator<S>,
+    parameters: [ParameterInfo]
+  ) {
+    self.name = name
+    self.displayName = displayName
+    self.traits = traits
+    self.sourceLocation = sourceLocation
+    self.containingType = containingType
+    self.xcTestCompatibleSelector = xcTestCompatibleSelector
+    self._testCases = .init(rawValue: .init(testCases))
+    self.parameters = parameters
   }
 }
 
@@ -140,5 +189,82 @@ extension Test: Equatable, Hashable {
 
   public func hash(into hasher: inout Hasher) {
     hasher.combine(id)
+  }
+}
+
+// MARK: - Snapshotting
+
+extension Test {
+  /// A serializable snapshot of a ``Test`` instance.
+  @_spi(ExperimentalSnapshotting)
+  public struct Snapshot: Sendable, Codable, Identifiable {
+    /// The ID of this test.
+    public var id: Test.ID
+
+    /// The name of this test.
+    ///
+    /// ## See Also
+    ///
+    /// - ``Test/name``
+    public var name: String
+
+    /// The customized display name of this test, if any.
+    public var displayName: String?
+
+    // FIXME: Include traits as well.
+
+    /// The source location of this test.
+    public var sourceLocation: SourceLocation
+
+    /// The set of test cases associated with this test, if any.
+    ///
+    /// ## See Also
+    ///
+    /// - ``Test/testCases``
+    @_spi(ExperimentalParameterizedTesting)
+    public var testCases: [Test.Case.Snapshot]?
+
+    /// The test function parameters, if any.
+    ///
+    /// ## See Also
+    ///
+    /// - ``Test/parameters``
+    @_spi(ExperimentalParameterizedTesting)
+    public var parameters: [ParameterInfo]?
+
+    /// Initialize an instance of this type by snapshotting the specified test.
+    ///
+    /// - Parameters:
+    ///   - test: The original test to snapshot.
+    public init(snapshotting test: Test) {
+      id = test.id
+      name = test.name
+      displayName = test.displayName
+      sourceLocation = test.sourceLocation
+      testCases = test.testCases?.map(Test.Case.Snapshot.init)
+      parameters = test.parameters
+    }
+
+    /// Whether or not this test is parameterized.
+    ///
+    /// ## See Also
+    ///
+    /// - ``Test/isParameterized``
+    @_spi(ExperimentalParameterizedTesting)
+    public var isParameterized: Bool {
+      guard let parameterCount = parameters?.count else {
+        return false
+      }
+      return parameterCount != 0
+    }
+
+    /// Whether or not this instance is a test suite containing other tests.
+    ///
+    /// ## See Also
+    ///
+    /// - ``Test/isSuite``
+    public var isSuite: Bool {
+      testCases == nil
+    }
   }
 }

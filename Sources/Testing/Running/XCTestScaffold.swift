@@ -9,18 +9,16 @@
 //
 
 #if !SWT_NO_XCTEST_SCAFFOLDING
-@_implementationOnly import TestingInternals
-import XCTest
+private import TestingInternals
+public import XCTest
 
 #if SWT_TARGET_OS_APPLE
 extension XCTSourceCodeContext {
   convenience init(_ sourceContext: SourceContext) {
-    let addresses = sourceContext.backtrace?.addresses.map { address in
-      UInt(bitPattern: address) as NSNumber
-    } ?? []
+    let addresses = sourceContext.backtrace?.addresses.map { $0 as NSNumber } ?? []
     let sourceLocation = sourceContext.sourceLocation.map { sourceLocation in
       XCTSourceCodeLocation(
-        filePath: String(describing: sourceLocation._filePath),
+        filePath: sourceLocation._filePath,
         lineNumber: sourceLocation.line
       )
     }
@@ -33,11 +31,10 @@ extension XCTSourceCodeContext {
 /// This type is not part of the public interface of the testing library.
 struct TimeoutError: Error, CustomStringConvertible {
   /// The time limit exceeded by the test that timed out.
-  var timeLimitComponents: (seconds: Int64, attoseconds: Int64)
+  var timeLimit: TimeValue
 
   var description: String {
-    let timeLimitDescription = descriptionOfTimeComponents(timeLimitComponents)
-    return "Timed out after \(timeLimitDescription) seconds."
+    "Timed out after \(timeLimit) seconds."
   }
 }
 
@@ -54,7 +51,7 @@ extension XCTIssue {
     case let .timeLimitExceeded(timeLimitComponents: timeLimitComponents):
       issueType = .thrownError
       if error == nil {
-        error = TimeoutError(timeLimitComponents: timeLimitComponents)
+        error = TimeoutError(timeLimit: TimeValue(timeLimitComponents))
       }
     case .unconditional:
       issueType = .assertionFailure
@@ -89,13 +86,14 @@ extension XCTIssue {
 /// A type providing temporary tools for integrating the testing library and
 /// the XCTest framework.
 ///
-/// - Warning: This type is provided temporarily to aid in integrating the
-///   testing library with existing tools such as Swift Package Manager. It
-///   will be removed in a future release.
-///
 /// ## See Also
 ///
 /// - <doc:TemporaryGettingStarted>
+#if SWIFT_PM_SUPPORTS_SWIFT_TESTING
+@available(*, deprecated, message: "This version of Swift Package Manager supports running swift-testing tests directly. This type will be removed in a future release.")
+#else
+@available(swift, deprecated: 100000.0, message: "This type is provided temporarily to aid in integrating the testing library with existing tools such as Swift Package Manager. It will be removed in a future release.")
+#endif
 public enum XCTestScaffold: Sendable {
   /// Run all tests found in the current process and write output to the
   /// standard error stream.
@@ -108,9 +106,46 @@ public enum XCTestScaffold: Sendable {
   /// The format of the output is not meant to be machine-readable and is
   /// subject to change.
   ///
-  /// - Warning: This function is provided temporarily to aid in integrating the
-  ///   testing library with existing tools such as Swift Package Manager. It
-  ///   will be removed in a future release.
+  /// ### Filtering tests
+  ///
+  /// This function does not support the `--filter` argument passed to
+  /// `swift test`. Instead, use one of several environment variables to control
+  /// which tests run.
+  ///
+  /// #### Filtering by ID
+  ///
+  /// To run a specific test, set the `SWT_SELECTED_TEST_IDS` environment
+  /// variable to the ``Test/ID`` of that test (or, if multiple tests should be
+  /// run, their IDs separated by `";"`.)
+  ///
+  /// A test ID is composed of its module name, containing type name, and (if
+  /// the test is a function rather than a suite), the name of the function
+  /// including parentheses and any parameter labels. For example, given the
+  /// following test functions in a module named `"FoodTruckTests"`:
+  ///
+  /// ```swift
+  /// struct CashRegisterTests {
+  ///   @Test func hasCash() { ... }
+  ///   @Test(arguments: Card.allCases) func acceptsCard(card: Card) { ... }
+  /// }
+  /// ```
+  ///
+  /// Their IDs are the strings `"FoodTruckTests/CashRegisterTests/hasCash()"`
+  /// and `"FoodTruckTests/CashRegisterTests/acceptsCard(card:)"` respectively,
+  /// and they can be passed as the environment variable value
+  /// `"FoodTruckTests/CashRegisterTests/hasCash();FoodTruckTests/CashRegisterTests/acceptsCard(card:)"`.
+  ///
+  /// - Note: The module name of a test target in a Swift package is typically
+  ///   the name of the test target.
+  ///
+  /// #### Filtering by tag
+  ///
+  /// To run only those tests with a given ``Tag``, set the `SWT_SELECTED_TAGS`
+  /// environment variable to the string value of that tag. Separate multiple
+  /// tags with `";"`; tests with _any_ of the specified tags will be run. For
+  /// example, to run all tests tagged `"critical"` _or_ ``Tag/red`` (or both),
+  /// set the value of the `SWT_SELECTED_TAGS` environment variable to
+  /// `"critical;red"`.
   ///
   /// ### Configuring output
   ///
@@ -128,23 +163,65 @@ public enum XCTestScaffold: Sendable {
   /// ## See Also
   ///
   /// - <doc:TemporaryGettingStarted>
+#if SWIFT_PM_SUPPORTS_SWIFT_TESTING
+  @available(*, deprecated, message: "This version of Swift Package Manager supports running swift-testing tests directly. This function has no effect and will be removed in a future release.")
+#else
+  @available(swift, deprecated: 100000.0, message: "This function is provided temporarily to aid in integrating the testing library with existing tools such as Swift Package Manager. It will be removed in a future release.")
+#endif
   public static func runAllTests(hostedBy testCase: XCTestCase) async {
-    let eventRecorder = Event.Recorder(options: .forStandardError) { string in
-      let stderr = swt_stderr()
-      fputs(string, stderr)
-      fflush(stderr)
-    }
-
+#if SWIFT_PM_SUPPORTS_SWIFT_TESTING
+    let message = Event.ConsoleOutputRecorder.warning(
+      "This version of Swift Package Manager supports running swift-testing tests directly. Ignoring call to \(#function).",
+      options: .forStandardError
+    )
+#if SWT_TARGET_OS_APPLE
+    let stderr = swt_stderr()
+    fputs(message, stderr)
+    fflush(stderr)
+#else
+    print(message)
+#endif
+#else
+    let testCase = UncheckedSendable(rawValue: testCase)
 #if SWT_TARGET_OS_APPLE
     let isProcessLaunchedByXcode = Environment.variable(named: "XCTestSessionIdentifier") != nil
 #endif
 
-    var configuration = Configuration()
-    let testCase = UncheckedSendable(rawValue: testCase)
-    configuration.isParallelizationEnabled = false
-    configuration.eventHandler = { event, context in
-      eventRecorder.record(event, in: context)
+    // If the SWT_SELECTED_TEST_IDS environment variable is set, split it into
+    // test IDs (separated by ";", test ID components separated by "/") and set
+    // the configuration's test filter to match it.
+    //
+    // This environment variable stands in for `swift test --filter`.
+    let testIDs: [Test.ID]? = Environment.variable(named: "SWT_SELECTED_TEST_IDS").map { testIDs in
+      testIDs.split(separator: ";", omittingEmptySubsequences: true).map { testID in
+        Test.ID(testID.split(separator: "/", omittingEmptySubsequences: true).map(String.init))
+      }
+    }
+    // If the SWT_SELECTED_TAGS environment variable is set, split it by ";"
+    // (similar to test IDs above) and check if tests' tags overlap.
+    let tags: Set<Tag>? = Environment.variable(named: "SWT_SELECTED_TAGS")
+      .map { tags in
+        tags
+          .split(separator: ";", omittingEmptySubsequences: true)
+          .map(String.init)
+          .map(Tag.init(rawValue:))
+      }.map(Set.init)
 
+    var configuration = Configuration()
+    configuration.isParallelizationEnabled = false
+    if let testIDs {
+      configuration.testFilter = makeTestFilter(matching: testIDs)
+    }
+    if let tags {
+      // Check if the test's tags intersect the set of selected tags. If there
+      // was a previous filter function, it must also pass.
+      let oldTestFilter = configuration.testFilter
+      configuration.testFilter = { test in
+        !tags.isDisjoint(with: test.tags) && oldTestFilter(test)
+      }
+    }
+
+    configuration.eventHandler = { event, context in
       guard case let .issueRecorded(issue) = event.kind else {
         return
       }
@@ -162,115 +239,16 @@ public enum XCTestScaffold: Sendable {
       // does not behave as it might appear. The `expected` argument determines
       // if the issue represents an assertion failure or a thrown error.
       if !issue.isKnown {
-        let sourceLocation = issue.sourceLocation ?? .init()
-        XCTFail(String(describing: issue), file: sourceLocation._filePath, line: UInt(sourceLocation.line))
+        testCase.rawValue.recordFailure(withDescription: String(describing: issue),
+                                        inFile: issue.sourceLocation?._filePath ?? "<unknown>",
+                                        atLine: issue.sourceLocation?.line ?? 0,
+                                        expected: true)
       }
 #endif
     }
 
-    let runner = await Runner(configuration: configuration)
-    await runner.run()
-  }
-}
-
-// MARK: -
-
-extension [Event.Recorder.Option] {
-  /// The set of options to use when writing to the standard error stream.
-  fileprivate static var forStandardError: Self {
-    var result = Self()
-
-    let useANSIEscapeCodes = _standardErrorSupportsANSIEscapeCodes
-    if useANSIEscapeCodes {
-      result.append(.useANSIEscapeCodes)
-      if _standardErrorSupports256ColorANSIEscapeCodes {
-        result.append(.use256ColorANSIEscapeCodes)
-      }
-    }
-
-#if os(macOS) || (os(iOS) && targetEnvironment(macCatalyst))
-    // On macOS, if we are writing to a TTY (i.e. Terminal.app) and the SF Pro
-    // font is installed, we can use SF Symbols characters in place of Unicode
-    // pictographs. Other platforms do not generally have this font installed.
-    // In case rendering with SF Symbols is causing problems (e.g. a third-party
-    // terminal app is being used that doesn't support them), allow explicitly
-    // toggling them with an environment variable.
-    var useSFSymbols = false
-    if let environmentVariable = Environment.flag(named: "SWT_SF_SYMBOLS_ENABLED") {
-      useSFSymbols = environmentVariable
-    } else if useANSIEscapeCodes {
-      var statStruct = stat()
-      useSFSymbols = (0 == stat("/Library/Fonts/SF-Pro.ttf", &statStruct))
-    }
-    if useSFSymbols {
-      result.append(.useSFSymbols)
-    }
-#endif
-
-    return result
-  }
-
-  /// Whether or not the current process's standard error stream is capable of
-  /// accepting and rendering ANSI escape codes.
-  private static var _standardErrorSupportsANSIEscapeCodes: Bool {
-    // Respect the NO_COLOR environment variable. SEE: https://www.no-color.org
-    if let noColor = Environment.variable(named: "NO_COLOR"), !noColor.isEmpty {
-      return false
-    }
-
-    // Determine if stderr appears to write to a Terminal window capable of
-    // accepting ANSI escape codes.
-#if SWT_TARGET_OS_APPLE || os(Linux)
-    // If stderr is a TTY and TERM is set, that's good enough for us.
-    if 0 != isatty(STDERR_FILENO),
-       let term = Environment.variable(named: "TERM"),
-       !term.isEmpty && term != "dumb" {
-      return true
-    }
-#elseif os(Windows)
-    // If there is a console buffer associated with stderr, then it's a console.
-    if let stderrHandle = GetStdHandle(STD_ERROR_HANDLE) {
-      var screenBufferInfo = CONSOLE_SCREEN_BUFFER_INFO()
-      if GetConsoleScreenBufferInfo(stderrHandle, &screenBufferInfo) {
-        return true
-      }
-    }
-#endif
-
-    // If stderr is a pipe, assume the other end is using it to forward output
-    // from this process to its own stderr file. This is how `swift test`
-    // invokes the testing library, for example.
-#if SWT_TARGET_OS_APPLE || os(Linux)
-    var statStruct = stat()
-    if 0 == fstat(STDERR_FILENO, &statStruct) && swt_S_ISFIFO(statStruct.st_mode) {
-      return true
-    }
-#elseif os(Windows)
-    if let stderrHandle = GetStdHandle(STD_ERROR_HANDLE), FILE_TYPE_PIPE == GetFileType(stderrHandle) {
-      return true
-    }
-#endif
-
-    return false
-  }
-
-  /// Whether or not the system terminal claims to support 256-color ANSI escape
-  /// codes.
-  private static var _standardErrorSupports256ColorANSIEscapeCodes: Bool {
-#if SWT_TARGET_OS_APPLE || os(Linux)
-    // The `contains(_:)` overload used here comes from _StringProcessing module
-    // instead of the stdlib. This may be lowered in the future, but for now,
-    // simply limit the check for 256 colors to these newer OSes.
-    if #available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *) {
-      return Environment.variable(named: "TERM")?.contains("256") == true
-    }
-    return false
-#elseif os(Windows)
-    // Windows does not set the "TERM" variable, so assume it supports 256-color
-    // ANSI escape codes.
-    true
+    await runTests(configuration: configuration)
 #endif
   }
 }
-
 #endif

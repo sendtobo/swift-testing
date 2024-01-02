@@ -17,10 +17,11 @@ let package = Package(
   name: "swift-testing",
 
   platforms: [
-    .macOS(.v13),
-    .iOS(.v16),
-    .watchOS(.v9),
-    .tvOS(.v16),
+    .macOS(.v10_15),
+    .iOS(.v13),
+    .watchOS(.v6),
+    .tvOS(.v13),
+    .macCatalyst(.v13),
     .visionOS(.v1),
   ],
 
@@ -73,14 +74,6 @@ let package = Package(
         .unsafeFlags(["-Xfrontend", "-allowable-client", "-Xfrontend", "TestingMacrosTests"]),
       ]
     ),
-    .testTarget(
-      name: "TestingMacrosTests",
-      dependencies: [
-        "Testing",
-        "TestingMacros",
-      ],
-      swiftSettings: .packageSettings
-    ),
 
     // "Support" targets: These contain C family code and are used exclusively
     // by other targets above, not directly included in product libraries.
@@ -105,21 +98,53 @@ let package = Package(
   cxxLanguageStandard: .cxx20
 )
 
+// BUG: swift-package-manager-#6367
+#if !os(Windows)
+package.targets.append(contentsOf: [
+  .testTarget(
+    name: "TestingMacrosTests",
+    dependencies: [
+      "Testing",
+      "TestingMacros",
+    ],
+    swiftSettings: .packageSettings
+  )
+])
+#endif
+
 extension Array where Element == PackageDescription.SwiftSetting {
   /// Settings intended to be applied to every Swift target in this package.
   /// Analogous to project-level build settings in an Xcode project.
   static var packageSettings: Self {
     [
       .unsafeFlags([
-        "-strict-concurrency=complete",
         "-require-explicit-sendable",
 
+        "-Xfrontend", "-define-availability", "-Xfrontend", "_mangledTypeNameAPI:macOS 11.0, iOS 14.0, watchOS 7.0, tvOS 14.0",
+        "-Xfrontend", "-define-availability", "-Xfrontend", "_backtraceAsyncAPI:macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0",
         "-Xfrontend", "-define-availability", "-Xfrontend", "_clockAPI:macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0",
-        "-Xfrontend", "-define-availability", "-Xfrontend", "_distantFuture:macOS 99.0, iOS 99.0, watchOS 99.0, tvOS 99.0",
         "-Xfrontend", "-define-availability", "-Xfrontend", "_regexAPI:macOS 13.0, iOS 16.0, tvOS 16.0, watchOS 9.0",
         "-Xfrontend", "-define-availability", "-Xfrontend", "_swiftVersionAPI:macOS 13.0, iOS 16.0, tvOS 16.0, watchOS 9.0",
+
+        "-Xfrontend", "-define-availability", "-Xfrontend", "_distantFuture:macOS 99.0, iOS 99.0, watchOS 99.0, tvOS 99.0",
       ]),
+      .enableExperimentalFeature("StrictConcurrency"),
       .enableUpcomingFeature("ExistentialAny"),
+
+      // FIXME: In a certain range of Swift toolchains, this feature causes
+      // warnings to be emitted such as:
+      //
+      // ```
+      // warning: public import of 'SwiftSyntax' was not used in public declarations or inlinable code
+      // ```
+      //
+      // Once this package only builds using new-enough toolchains where that
+      // problem is resolved, we should remove the `public` access level from
+      // the `import` declarations in the `TestingMacros` target which do not
+      // require it, to resolve these warnings.
+      .enableExperimentalFeature("AccessLevelOnImport"),
+      .enableUpcomingFeature("InternalImportsByDefault"),
+
       .define("SWT_TARGET_OS_APPLE", .when(platforms: [.macOS, .iOS, .macCatalyst, .watchOS, .tvOS, .visionOS])),
     ]
   }

@@ -362,6 +362,7 @@ struct MiscellaneousTests {
       let parameters = try #require(test.parameters)
       #expect(parameters.count == 1)
       let firstParameter = try #require(parameters.first)
+      #expect(firstParameter.index == 0)
       #expect(firstParameter.firstName == "i")
       #expect(firstParameter.secondName == nil)
     } catch {}
@@ -371,9 +372,11 @@ struct MiscellaneousTests {
       let parameters = try #require(test.parameters)
       #expect(parameters.count == 2)
       let firstParameter = try #require(parameters.first)
+      #expect(firstParameter.index == 0)
       #expect(firstParameter.firstName == "i")
       #expect(firstParameter.secondName == nil)
       let secondParameter = try #require(parameters.last)
+      #expect(secondParameter.index == 1)
       #expect(secondParameter.firstName == "j")
       #expect(secondParameter.secondName == "k")
     } catch {}
@@ -433,28 +436,25 @@ struct MiscellaneousTests {
     #expect(!monomorphicTestFunction.isParameterized)
     let monomorphicTestFunctionTestCases = try #require(monomorphicTestFunction.testCases)
     #expect(monomorphicTestFunctionTestCases.underestimatedCount == 1)
-    #expect(!monomorphicTestFunctionTestCases.isParameterized)
     let monomorphicTestFunctionParameters = try #require(monomorphicTestFunction.parameters)
     #expect(monomorphicTestFunctionParameters.isEmpty)
 
-    let parameterizedTestFunction = Test(arguments: 0 ..< 100, parameters: [Test.ParameterInfo(firstName: "i")]) { _ in }
+    let parameterizedTestFunction = Test(arguments: 0 ..< 100, parameters: [Test.ParameterInfo(index: 0, firstName: "i")]) { _ in }
     #expect(parameterizedTestFunction.isParameterized)
     let parameterizedTestFunctionTestCases = try #require(parameterizedTestFunction.testCases)
     #expect(parameterizedTestFunctionTestCases.underestimatedCount == 100)
-    #expect(parameterizedTestFunctionTestCases.isParameterized)
     let parameterizedTestFunctionParameters = try #require(parameterizedTestFunction.parameters)
     #expect(parameterizedTestFunctionParameters.count == 1)
     let parameterizedTestFunctionFirstParameter = try #require(parameterizedTestFunctionParameters.first)
     #expect(parameterizedTestFunctionFirstParameter.firstName == "i")
 
     let parameterizedTestFunction2 = Test(arguments: 0 ..< 100, 0 ..< 100, parameters: [
-      Test.ParameterInfo(firstName: "i"),
-      Test.ParameterInfo(firstName: "j", secondName: "value"),
+      Test.ParameterInfo(index: 0, firstName: "i"),
+      Test.ParameterInfo(index: 1, firstName: "j", secondName: "value"),
     ]) { _, _ in }
     #expect(parameterizedTestFunction2.isParameterized)
     let parameterizedTestFunction2TestCases = try #require(parameterizedTestFunction2.testCases)
     #expect(parameterizedTestFunction2TestCases.underestimatedCount == 100 * 100)
-    #expect(parameterizedTestFunction2TestCases.isParameterized)
     let parameterizedTestFunction2Parameters = try #require(parameterizedTestFunction2.parameters)
     #expect(parameterizedTestFunction2Parameters.count == 2)
     let parameterizedTestFunction2FirstParameter = try #require(parameterizedTestFunction2Parameters.first)
@@ -467,15 +467,15 @@ struct MiscellaneousTests {
   @Test("Test.id property")
   func id() async throws {
     let typeTest = Test.__type(SendableTests.self, displayName: "SendableTests", traits: [], sourceLocation: .init())
-    #expect(String(describing: typeTest.id) == "TestingTests/SendableTests")
+    #expect(String(describing: typeTest.id) == "TestingTests.SendableTests")
 
     let fileID = "Module/Y.swift"
-    let filePath: StaticString = "/Y.swift"
+    let filePath = "/Y.swift"
     let line = 12345
     let column = 67890
     let sourceLocation = SourceLocation(fileID: fileID, filePath: filePath, line: line, column: column)
     let testFunction = Test.__function(named: "myTestFunction()", in: nil, xcTestCompatibleSelector: nil, displayName: nil, traits: [], sourceLocation: sourceLocation) {}
-    #expect(String(describing: testFunction.id) == "Module/myTestFunction()/Y.swift:12345:67890")
+    #expect(String(describing: testFunction.id) == "Module.myTestFunction()/Y.swift:12345:67890")
   }
 
   @Test("Test.ID.parent property")

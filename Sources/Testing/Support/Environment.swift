@@ -8,7 +8,7 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-@_implementationOnly import TestingInternals
+private import TestingInternals
 
 /// A type describing the environment of the current process.
 ///
@@ -41,10 +41,19 @@ enum Environment {
     name.withCString(encodedAs: UTF16.self) { name in
       func getVariable(maxCount: Int) -> String? {
         withUnsafeTemporaryAllocation(of: wchar_t.self, capacity: maxCount) { buffer in
+          SetLastError(DWORD(ERROR_SUCCESS))
           let count = GetEnvironmentVariableW(name, buffer.baseAddress!, DWORD(buffer.count))
-          if count <= 0 {
-            // Failed to get the environment variable. Presumably it is not set.
-            return nil
+          if count == 0 {
+            return switch GetLastError() {
+            case DWORD(ERROR_SUCCESS):
+              // Empty String
+              ""
+            case DWORD(ERROR_ENVVAR_NOT_FOUND):
+              // The environment variable wasn't set.
+              nil
+            case let errorCode:
+              fatalError("unexpected error code: \(errorCode) when getting environment variable '\(name)'")
+            }
           } else if count > buffer.count {
             // Try again with the larger count.
             return getVariable(maxCount: Int(count))
@@ -88,40 +97,5 @@ enum Environment {
       let first = $0.first
       return first == "t" || first == "T" || first == "y" || first == "Y"
     }
-  }
-
-  /// Set the environment variable with the specified name.
-  ///
-  /// - Parameters:
-  ///   - value: The new value for the specified environment variable. Pass
-  ///     `nil` to remove the variable from the current process' environment.
-  ///   - name: The name of the environment variable.
-  ///
-  /// - Returns: Whether or not the environment variable was successfully set.
-  @discardableResult
-  static func setVariable(_ value: String?, named name: String) -> Bool {
-#if SWT_NO_ENVIRONMENT_VARIABLES
-    $_environment.withLock { environment in
-      environment[name] = value
-    }
-    return true
-#elseif SWT_TARGET_OS_APPLE || os(Linux)
-    if let value {
-      return 0 == setenv(name, value, 1)
-    }
-    return 0 == unsetenv(name)
-#elseif os(Windows)
-    name.withCString(encodedAs: UTF16.self) { name in
-      if let value {
-        return value.withCString(encodedAs: UTF16.self) { value in
-          SetEnvironmentVariableW(name, value)
-        }
-      }
-      return SetEnvironmentVariableW(name, nil)
-    }
-#else
-#warning("Platform-specific implementation missing: environment variables unavailable")
-    false
-#endif
   }
 }

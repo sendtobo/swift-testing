@@ -8,7 +8,7 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-@testable @_spi(ExperimentalTestRunning) @_spi(ExperimentalParameterizedTesting) import Testing
+@testable @_spi(ExperimentalTestRunning) @_spi(ExperimentalParameterizedTesting) @_spi(ExperimentalEventHandling) import Testing
 #if canImport(XCTest)
 import XCTest
 #endif
@@ -67,7 +67,8 @@ func runTest(for containingType: Any.Type, configuration: Configuration = .init(
 /// If no test is found representing `containingType`, nothing is run.
 func runTestFunction(named name: String, in containingType: Any.Type, configuration: Configuration = .init()) async {
   var configuration = configuration
-  configuration.selectedTestIDs = [Test.ID(type: containingType).child(named: name)]
+  let selection = [Test.ID(type: containingType).child(named: name)]
+  configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
   let runner = await Runner(configuration: configuration)
   await runner.run()
@@ -90,7 +91,8 @@ extension Runner {
     let moduleName = String(fileID[..<fileID.lastIndex(of: "/")!])
 
     var configuration = configuration
-    configuration.selectedTestIDs = [Test.ID(moduleName: moduleName, nameComponents: [testName], sourceLocation: nil)]
+    let selection = [Test.ID(moduleName: moduleName, nameComponents: [testName], sourceLocation: nil)]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     await self.init(configuration: configuration)
   }
@@ -104,7 +106,8 @@ extension Runner.Plan {
   ///   - configuration: The configuration to use for planning.
   init(selecting containingType: Any.Type, configuration: Configuration = .init()) async {
     var configuration = configuration
-    configuration.selectedTestIDs = [Test.ID(type: containingType)]
+    let selection = [Test.ID(type: containingType)]
+    configuration.uncheckedTestFilter = makeTestFilter(matching: selection)
 
     await self.init(configuration: configuration)
   }
@@ -122,7 +125,7 @@ extension Test {
   init(
     _ traits: any TestTrait...,
     fileID: String = #fileID,
-    filePath: StaticString = #filePath,
+    filePath: String = #filePath,
     line: Int = #line,
     column: Int = #column,
     name: String = #function,
@@ -153,14 +156,14 @@ extension Test {
     arguments collection: C,
     parameters: [ParameterInfo] = [],
     fileID: String = #fileID,
-    filePath: StaticString = #filePath,
+    filePath: String = #filePath,
     line: Int = #line,
     column: Int = #column,
     name: String = #function,
     testFunction: @escaping @Sendable (C.Element) async throws -> Void
   ) where C: Collection & Sendable, C.Element: Sendable {
     let sourceLocation = SourceLocation(fileID: fileID, filePath: filePath, line: line, column: column)
-    let caseGenerator = Case.Generator(arguments: collection, testFunction: testFunction)
+    let caseGenerator = Case.Generator(arguments: collection, parameters: parameters, testFunction: testFunction)
     self.init(name: name, displayName: name, traits: traits, sourceLocation: sourceLocation, containingType: nil, testCases: caseGenerator, parameters: parameters)
   }
 
@@ -185,14 +188,14 @@ extension Test {
     arguments collection1: C1, _ collection2: C2,
     parameters: [ParameterInfo] = [],
     fileID: String = #fileID,
-    filePath: StaticString = #filePath,
+    filePath: String = #filePath,
     line: Int = #line,
     column: Int = #column,
     name: String = #function,
     testFunction: @escaping @Sendable (C1.Element, C2.Element) async throws -> Void
   ) where C1: Collection & Sendable, C1.Element: Sendable, C2: Collection & Sendable, C2.Element: Sendable {
     let sourceLocation = SourceLocation(fileID: fileID, filePath: filePath, line: line, column: column)
-    let caseGenerator = Case.Generator(arguments: collection1, collection2, testFunction: testFunction)
+    let caseGenerator = Case.Generator(arguments: collection1, collection2, parameters: parameters, testFunction: testFunction)
     self.init(name: name, displayName: name, traits: traits, sourceLocation: sourceLocation, containingType: nil, testCases: caseGenerator, parameters: parameters)
   }
 
@@ -212,14 +215,14 @@ extension Test {
     arguments zippedCollections: Zip2Sequence<C1, C2>,
     parameters: [ParameterInfo] = [],
     fileID: String = #fileID,
-    filePath: StaticString = #filePath,
+    filePath: String = #filePath,
     line: Int = #line,
     column: Int = #column,
     name: String = #function,
     testFunction: @escaping @Sendable ((C1.Element, C2.Element)) async throws -> Void
   ) where C1: Collection & Sendable, C1.Element: Sendable, C2: Collection & Sendable, C2.Element: Sendable {
     let sourceLocation = SourceLocation(fileID: fileID, filePath: filePath, line: line, column: column)
-    let caseGenerator = Case.Generator(arguments: zippedCollections, testFunction: testFunction)
+    let caseGenerator = Case.Generator(arguments: zippedCollections, parameters: parameters, testFunction: testFunction)
     self.init(name: name, displayName: name, traits: traits, sourceLocation: sourceLocation, containingType: nil, testCases: caseGenerator, parameters: parameters)
   }
 }
@@ -284,6 +287,29 @@ extension Test.ID.Selection {
   ///     IDs to include in the selection.
   init(testIDs: some Collection<[String]>) {
     self.init(testIDs: testIDs.lazy.map(Test.ID.init(_:)))
+  }
+}
+
+extension Configuration {
+  /// Set an event handler which automatically handles thrown errors.
+  ///
+  /// - Parameters:
+  ///   - eventHandler: The throwing ``Event/Handler`` to set.
+  ///
+  /// Errors thrown by `eventHandler` are caught and recorded as an ``Issue``.
+  ///
+  /// This is meant for testing the testing library itself. In production tests,
+  /// event handlers should not typically need to be throwing, but if they do,
+  /// the event handler should implement its own error-handling logic since
+  /// recording an ``Issue`` would be inappropriate.
+  mutating func setEventHandler(_ eventHandler: @escaping @Sendable (_ event: borrowing Event, _ context: borrowing Event.Context) throws -> Void) {
+    self.eventHandler = { event, context in
+      do {
+        try eventHandler(event, context)
+      } catch {
+        Issue.record(error)
+      }
+    }
   }
 }
 

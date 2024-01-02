@@ -8,10 +8,8 @@
 // See https://swift.org/CONTRIBUTORS.txt for Swift project authors
 //
 
-@_implementationOnly import TestingInternals
-
 #if _runtime(_ObjC)
-import ObjectiveC
+public import ObjectiveC
 
 /// An XCTest-compatible Objective-C selector.
 ///
@@ -43,10 +41,6 @@ public typealias __XCTestCompatibleSelector = Never
   nil
 #endif
 }
-
-#if !SWT_NO_XCTEST_SCAFFOLDING
-import XCTest
-#endif
 
 /// This file provides support for the `@Test` macro. Other than the macro
 /// itself, the symbols in this file should not be used directly and are subject
@@ -117,7 +111,7 @@ extension Test {
     sourceLocation: SourceLocation
   ) -> Self {
     let typeName = _typeName(containingType, qualified: false)
-    return Self(name: typeName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType, testCases: nil)
+    return Self(name: typeName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType)
   }
 }
 
@@ -176,6 +170,19 @@ extension Test {
   }
 }
 
+extension [Test.__ParameterInfo] {
+  /// An array of ``Test/ParameterInfo`` values based on this array of parameter
+  /// tuples.
+  ///
+  /// This conversion derives the value of the `index` property of the resulting
+  /// parameter instances from the position of the tuple in the original array.
+  fileprivate var parameters: [Test.ParameterInfo] {
+    enumerated().map { index, parameter in
+      Test.ParameterInfo(index: index, firstName: parameter.firstName, secondName: parameter.secondName)
+    }
+  }
+}
+
 // MARK: - @Test(arguments:)
 
 /// This macro declaration is necessary to help the compiler disambiguate
@@ -230,11 +237,11 @@ extension Test {
     traits: [any TestTrait],
     arguments collection: C,
     sourceLocation: SourceLocation,
-    parameters: [__ParameterInfo],
+    parameters paramTuples: [__ParameterInfo],
     testFunction: @escaping @Sendable (C.Element) async throws -> Void
   ) -> Self where C: Collection & Sendable, C.Element: Sendable {
-    let caseGenerator = Case.Generator(arguments: collection, testFunction: testFunction)
-    let parameters = parameters.map(ParameterInfo.init)
+    let parameters = paramTuples.parameters
+    let caseGenerator = Case.Generator(arguments: collection, parameters: parameters, testFunction: testFunction)
     return Self(name: testFunctionName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType, xcTestCompatibleSelector: xcTestCompatibleSelector, testCases: caseGenerator, parameters: parameters)
   }
 }
@@ -358,11 +365,60 @@ extension Test {
     traits: [any TestTrait],
     arguments collection1: C1, _ collection2: C2,
     sourceLocation: SourceLocation,
-    parameters: [__ParameterInfo],
+    parameters paramTuples: [__ParameterInfo],
     testFunction: @escaping @Sendable (C1.Element, C2.Element) async throws -> Void
   ) -> Self where C1: Collection & Sendable, C1.Element: Sendable, C2: Collection & Sendable, C2.Element: Sendable {
-    let caseGenerator = Case.Generator(arguments: collection1, collection2, testFunction: testFunction)
-    let parameters = parameters.map(ParameterInfo.init)
+    let parameters = paramTuples.parameters
+    let caseGenerator = Case.Generator(arguments: collection1, collection2, parameters: parameters, testFunction: testFunction)
+    return Self(name: testFunctionName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType, xcTestCompatibleSelector: xcTestCompatibleSelector, testCases: caseGenerator, parameters: parameters)
+  }
+
+  /// Create an instance of ``Test`` for a parameterized function.
+  ///
+  /// This initializer overload is specialized for collections of 2-tuples to
+  /// efficiently de-structure their elements when appropriate.
+  ///
+  /// - Warning: This function is used to implement the `@Test` macro. Do not
+  ///   call it directly.
+  public static func __function<C, E1, E2>(
+    named testFunctionName: String,
+    in containingType: Any.Type?,
+    xcTestCompatibleSelector: __XCTestCompatibleSelector?,
+    displayName: String? = nil,
+    traits: [any TestTrait],
+    arguments collection: C,
+    sourceLocation: SourceLocation,
+    parameters paramTuples: [__ParameterInfo],
+    testFunction: @escaping @Sendable ((E1, E2)) async throws -> Void
+  ) -> Self where C: Collection & Sendable, C.Element == (E1, E2), E1: Sendable, E2: Sendable {
+    let parameters = paramTuples.parameters
+    let caseGenerator = Case.Generator(arguments: collection, parameters: parameters, testFunction: testFunction)
+    return Self(name: testFunctionName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType, xcTestCompatibleSelector: xcTestCompatibleSelector, testCases: caseGenerator, parameters: parameters)
+  }
+
+  /// Create an instance of ``Test`` for a parameterized function.
+  ///
+  /// This initializer overload is specialized for dictionary collections, to
+  /// efficiently de-structure their elements (which are known to be 2-tuples)
+  /// when appropriate. This overload is distinct from those for other
+  /// collections of 2-tuples because the `Element` tuple type for
+  /// `Dictionary` includes labels (`(key: Key, value: Value)`).
+  ///
+  /// - Warning: This function is used to implement the `@Test` macro. Do not
+  ///   call it directly.
+  public static func __function<Key, Value>(
+    named testFunctionName: String,
+    in containingType: Any.Type?,
+    xcTestCompatibleSelector: __XCTestCompatibleSelector?,
+    displayName: String? = nil,
+    traits: [any TestTrait],
+    arguments dictionary: Dictionary<Key, Value>,
+    sourceLocation: SourceLocation,
+    parameters paramTuples: [__ParameterInfo],
+    testFunction: @escaping @Sendable ((Key, Value)) async throws -> Void
+  ) -> Self where Key: Sendable, Value: Sendable {
+    let parameters = paramTuples.parameters
+    let caseGenerator = Case.Generator(arguments: dictionary, parameters: parameters, testFunction: testFunction)
     return Self(name: testFunctionName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType, xcTestCompatibleSelector: xcTestCompatibleSelector, testCases: caseGenerator, parameters: parameters)
   }
 
@@ -378,13 +434,13 @@ extension Test {
     traits: [any TestTrait],
     arguments zippedCollections: Zip2Sequence<C1, C2>,
     sourceLocation: SourceLocation,
-    parameters: [__ParameterInfo],
+    parameters paramTuples: [__ParameterInfo],
     testFunction: @escaping @Sendable (C1.Element, C2.Element) async throws -> Void
   ) -> Self where C1: Collection & Sendable, C1.Element: Sendable, C2: Collection & Sendable, C2.Element: Sendable {
-    let caseGenerator = Case.Generator(arguments: zippedCollections) {
+    let parameters = paramTuples.parameters
+    let caseGenerator = Case.Generator(arguments: zippedCollections, parameters: parameters) {
       try await testFunction($0, $1)
     }
-    let parameters = parameters.map(ParameterInfo.init)
     return Self(name: testFunctionName, displayName: displayName, traits: traits, sourceLocation: sourceLocation, containingType: containingType, xcTestCompatibleSelector: xcTestCompatibleSelector, testCases: caseGenerator, parameters: parameters)
   }
 }
@@ -480,36 +536,20 @@ public func __ifMainActorIsolationEnforced<R>(
 // TODO: implement a hook in XCTest that __invokeXCTestCaseMethod() can call to
 // run an XCTestCase nested in the current @Test function.
 
-#if !SWT_NO_XCTEST_SCAFFOLDING
-/// Run a test function as an `XCTestCase`-compatible method.
-///
-/// This overload is used when XCTest can be directly imported and the compiler
-/// can tell that the test suite type is a subclass of `XCTestCase`.
-///
-/// - Warning: This function is used to implement the `@Test` macro. Do not call
-///   it directly.
-public func __invokeXCTestCaseMethod<T>(
-  _ selector: __XCTestCompatibleSelector?,
-  onInstanceOf xcTestCaseSubclass: T.Type,
-  sourceLocation: SourceLocation
-) async throws -> Bool where T: XCTestCase {
-  Issue.record(
-    .apiMisused,
-    comments: ["The @Test attribute cannot be applied to methods on a subclass of XCTestCase."],
-    backtrace: nil,
-    sourceLocation: sourceLocation
-  )
-  return true
-}
-#elseif _runtime(_ObjC)
 /// The `XCTestCase` Objective-C class.
-let xcTestCaseClass: AnyClass? = objc_getClass("XCTestCase") as? AnyClass
+let xcTestCaseClass: AnyClass? = {
+#if _runtime(_ObjC)
+  objc_getClass("XCTestCase") as? AnyClass
+#else
+  _typeByName("6XCTest0A4CaseC") as? AnyClass // _mangledTypeName(XCTest.XCTestCase.self)
+#endif
+}()
 
 /// Run a test function as an `XCTestCase`-compatible method.
 ///
-/// This overload is used when XCTest can't be imported, or for classes that
-/// the compiler can't statically tell are subclasses of `XCTestCase`. If XCTest
-/// can be imported, this overload is not needed.
+/// This overload is used for types that are classes. If the type is not a
+/// subclass of `XCTestCase`, or if XCTest is not loaded in the current process,
+/// this function returns immediately.
 ///
 /// - Warning: This function is used to implement the `@Test` macro. Do not call
 ///   it directly.
@@ -517,10 +557,10 @@ public func __invokeXCTestCaseMethod<T>(
   _ selector: __XCTestCompatibleSelector?,
   onInstanceOf xcTestCaseSubclass: T.Type,
   sourceLocation: SourceLocation
-) async throws -> Bool where T: NSObject {
-  // Any NSObject subclass might end up on this code path, so only record an
-  // issue if it is really an XCTestCase subclass.
-  guard let xcTestCaseClass, xcTestCaseSubclass.isSubclass(of: xcTestCaseClass) else {
+) async throws -> Bool where T: AnyObject {
+  // All classes will end up on this code path, so only record an issue if it is
+  // really an XCTestCase subclass.
+  guard let xcTestCaseClass, isClass(xcTestCaseSubclass, subclassOf: xcTestCaseClass) else {
     return false
   }
   Issue.record(
@@ -530,112 +570,4 @@ public func __invokeXCTestCaseMethod<T>(
     sourceLocation: sourceLocation
   )
   return true
-}
-#endif
-
-// MARK: - Discovery
-
-/// A protocol describing a type that contains tests.
-///
-/// - Warning: This protocol is used to implement the `@Test` macro. Do not use
-///   it directly.
-@_alwaysEmitConformanceMetadata
-public protocol __TestContainer {
-  /// The set of tests contained by this type.
-  static var __tests: [Test] { get async }
-}
-
-extension Test {
-  /// A string that appears within all auto-generated types conforming to the
-  /// `__TestContainer` protocol.
-  private static let _testContainerTypeNameMagic = "__🟠$test_container__"
-
-  /// All available ``Test`` instances in the process, according to the runtime.
-  ///
-  /// The order of values in this sequence is unspecified.
-  static var all: some Sequence<Test> {
-    get async {
-      // Convert the raw sequence of tests to a dictionary keyed by ID.
-      var result = await testsByID(_all)
-
-      // Ensure test suite types that don't have the @Suite attribute are still
-      // represented in the result.
-      _synthesizeSuiteTypes(into: &result)
-
-      return result.values
-    }
-  }
-
-  /// All available ``Test`` instances in the process, according to the runtime.
-  ///
-  /// The order of values in this sequence is unspecified. This sequence may
-  /// contain duplicates; callers should use ``all`` instead.
-  private static var _all: some Sequence<Self> {
-    get async {
-      await withTaskGroup(of: [Self].self) { taskGroup in
-        swt_enumerateTypes({ typeName, _ in
-          // strstr() lets us avoid copying either string before comparing.
-          Self._testContainerTypeNameMagic.withCString { testContainerTypeNameMagic in
-            nil != strstr(typeName, testContainerTypeNameMagic)
-          }
-        }, /*typeEnumerator:*/ { type, context in
-          if let type = unsafeBitCast(type, to: Any.Type.self) as? any __TestContainer.Type {
-            let taskGroup = context!.assumingMemoryBound(to: TaskGroup<[Self]>.self)
-            taskGroup.pointee.addTask {
-              await type.__tests
-            }
-          }
-        }, &taskGroup)
-
-        return await taskGroup.reduce(into: [], +=)
-      }
-    }
-  }
-
-  /// Create a dictionary mapping the IDs of a sequence of tests to those tests.
-  ///
-  /// - Parameters:
-  ///   - tests: The sequence to convert to a dictionary.
-  ///
-  /// - Returns: A dictionary containing `tests` keyed by those tests' IDs.
-  static func testsByID(_ tests: some Sequence<Self>) -> [ID: Self] {
-    [ID: Self](
-      tests.lazy.map { ($0.id, $0) },
-      uniquingKeysWith: { existing, _ in existing }
-    ) 
-  }
-
-  /// Synthesize any missing test suite types (that is, types containing test
-  /// content that do not have the `@Suite` attribute) and add them to a
-  /// dictionary of tests.
-  ///
-  /// - Parameters:
-  ///   - tests: A dictionary of tests to amend.
-  ///
-  /// - Returns: The number of key-value pairs added to `tests`.
-  ///
-  /// - Bug: This function is necessary because containing type information is
-  ///   not available during expansion of the `@Test` macro.
-  ///   ([105470382](rdar://105470382))
-  @discardableResult private static func _synthesizeSuiteTypes(into tests: inout [ID: Self]) -> Int {
-    let originalCount = tests.count
-
-    // Find any instances of Test in the input that are *not* suites. We'll be
-    // checking the containing types of each one.
-    for test in tests.values where !test.isSuite {
-      guard let suiteType = test.containingType else {
-        continue
-      }
-      let suiteID = ID(type: suiteType)
-      if tests[suiteID] == nil {
-        // If the real test is hidden, so shall the synthesized test be hidden.
-        // Copy the exact traits from the real test in case they someday carry
-        // any interesting metadata.
-        let traits = test.traits.compactMap { $0 as? HiddenTrait }
-        tests[suiteID] = .__type(suiteType, displayName: nil, traits: traits, sourceLocation: test.sourceLocation)
-      }
-    }
-
-    return tests.count - originalCount
-  }
 }

@@ -30,6 +30,11 @@ func nameComponents(of type: Any.Type) -> [String] {
 ///
 /// Per the [Swift mangling ABI](https://github.com/apple/swift/blob/main/docs/ABI/Mangling.rst),
 /// enumeration types are mangled as `"O"`.
+///
+/// - Bug: We use the internal Swift standard library function
+///   `_mangledTypeName()` to derive this information. We should use supported
+///   API instead. ([swift-#69147](https://github.com/apple/swift/issues/69147))
+@available(_mangledTypeNameAPI, *)
 func isSwiftEnumeration(_ type: Any.Type) -> Bool {
   guard let mangledTypeName = _mangledTypeName(type), let lastCharacter = mangledTypeName.last else {
     return false
@@ -49,6 +54,11 @@ func isSwiftEnumeration(_ type: Any.Type) -> Bool {
 /// module. That module has a standardized mangling of `"So"`. The presence of
 /// those characters at the start of a type's mangled name indicates that it is
 /// an imported type.
+///
+/// - Bug: We use the internal Swift standard library function
+///   `_mangledTypeName()` to derive this information. We should use supported
+///   API instead. ([swift-#69146](https://github.com/apple/swift/issues/69146))
+@available(_mangledTypeNameAPI, *)
 func isImportedFromC(_ type: Any.Type) -> Bool {
   guard let mangledTypeName = _mangledTypeName(type), mangledTypeName.count > 2 else {
     return false
@@ -57,3 +67,22 @@ func isImportedFromC(_ type: Any.Type) -> Bool {
   let endIndex = mangledTypeName.index(mangledTypeName.startIndex, offsetBy: 2)
   return mangledTypeName[..<endIndex] == "So"
 }
+
+/// Check if a class is a subclass (or equal to) another class.
+///
+/// - Parameters:
+///   - subclass: The (possible) subclass to check.
+///   - superclass The (possible) superclass to check.
+///
+/// - Returns: Whether `subclass` is a subclass of, or is equal to,
+///   `superclass`.
+func isClass(_ subclass: AnyClass, subclassOf superclass: AnyClass) -> Bool {
+  if subclass == superclass {
+    true
+  } else if let subclassImmediateSuperclass = _getSuperclass(subclass) {
+    isClass(subclassImmediateSuperclass, subclassOf: superclass)
+  } else {
+    false
+  }
+}
+

@@ -16,7 +16,6 @@ public struct SourceLocation: Sendable {
   ///
   /// - ``moduleName``
   /// - ``fileName``
-  /// - [The Swift Programming Language &mdash; Literal Expressions](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/expressions/#Literal-Expression)
   public var fileID: String {
     didSet {
       precondition(!fileID.isEmpty)
@@ -32,11 +31,14 @@ public struct SourceLocation: Sendable {
   /// instance's ``fileID`` property is `"FoodTruck/WheelTests.swift"`, the
   /// file name is `"WheelTests.swift"`.
   ///
+  /// The structure of file IDs is described in the documentation for
+  /// [`#fileID`](https://developer.apple.com/documentation/swift/fileID())
+  /// in the Swift standard library.
+  ///
   /// ## See Also
   ///
   /// - ``fileID``
   /// - ``moduleName``
-  /// - [The Swift Programming Language &mdash; Literal Expressions](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/expressions/#Literal-Expression)
   public var fileName: String {
     let lastSlash = fileID.lastIndex(of: "/")!
     return String(fileID[fileID.index(after: lastSlash)...])
@@ -50,11 +52,15 @@ public struct SourceLocation: Sendable {
   /// instance's ``fileID`` property is `"FoodTruck/WheelTests.swift"`, the
   /// module name is `"FoodTruck"`.
   ///
+  /// The structure of file IDs is described in the documentation for the
+  /// [`#fileID`](https://developer.apple.com/documentation/swift/fileID())
+  /// macro in the Swift standard library.
+  ///
   /// ## See Also
   ///
   /// - ``fileID``
   /// - ``fileName``
-  /// - [The Swift Programming Language &mdash; Literal Expressions](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/expressions/#Literal-Expression)
+  /// - [`#fileID`](https://developer.apple.com/documentation/swift/fileID())
   public var moduleName: String {
     let firstSlash = fileID.firstIndex(of: "/")!
     return String(fileID[..<firstSlash])
@@ -65,7 +71,7 @@ public struct SourceLocation: Sendable {
   /// - Warning: This property is provided temporarily to aid in integrating the
   ///   testing library with existing tools such as Swift Package Manager. It
   ///   will be removed in a future release.
-  public var _filePath: StaticString
+  public var _filePath: String
 
   /// The line in the source file.
   public var line: Int {
@@ -83,7 +89,7 @@ public struct SourceLocation: Sendable {
 
   public init(
     fileID: String = #fileID,
-    filePath: StaticString = #filePath,
+    filePath: String = #filePath,
     line: Int = #line,
     column: Int = #column
   ) {
@@ -134,3 +140,7 @@ extension SourceLocation: CustomStringConvertible, CustomDebugStringConvertible 
     return "\(fileID):\(line):\(column)"
   }
 }
+
+// MARK: - Codable
+
+extension SourceLocation: Codable {}
